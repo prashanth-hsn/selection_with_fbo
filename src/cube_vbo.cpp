@@ -231,7 +231,6 @@ void CubeRenderer::render(const glm::mat4& view, const glm::mat4& projection, co
 	}
 
 	glBindVertexArray(0);
-	glUseProgram(0);
 }
 
 
