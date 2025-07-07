@@ -7,12 +7,13 @@
 // Example usage with GLFW
 Application::Application(){
 	initOpenGL();
-	rubberband = new RubberbandSelection(windowWidth, windowHeight);
+	init_fbo();
+	rubberband = new RubberbandSelection(static_cast<float> (windowWidth), static_cast<float> (windowHeight));
 	//instanced_renderer_ = new InstancedRenderer;
 	cube_renderer_ = new CubeRenderer;
-
+	cube_renderer_->set_section_mode(false);
 	camera = new Camera(glm::vec3(0.f, 0.f, 8.f));
-	cam_ctrl = new CameraController(camera, windowWidth, windowHeight);
+	cam_ctrl = new CameraController(camera, static_cast<float> (windowWidth), static_cast<float> (windowHeight));
 	camera->setAspectRatio(static_cast<float>(windowWidth) / windowHeight);
 	//camera->setCameraType(CameraType::PERSPECTIVE);
 	setupCallbacks();
@@ -87,7 +88,7 @@ void Application::setupCallbacks()
 
 	glfwSetScrollCallback(window, [](GLFWwindow* window, double xoffset, double yoffset) {
 		Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
-		app->cam_ctrl->scrollCallback(yoffset); });
+		app->cam_ctrl->scrollCallback(static_cast<float>(yoffset)); });
 
 	glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scan, int action, int mods)
 	{
@@ -110,6 +111,7 @@ void Application::mouseButtonCallback(int button, int action, int mods) {
 	{
 		rubberband_active = true;
 		rubberband->startSelection(xpos, ypos);
+		cube_renderer_->set_section_mode(false);
 
 	}
 	else if (rubberband_active  && 
@@ -117,7 +119,17 @@ void Application::mouseButtonCallback(int button, int action, int mods) {
 		action == 0)
 	{
 		rubberband_active = false;
-		rubberband->endSelection();
+		glm::vec2 start, end;
+		rubberband->endSelection(start, end);
+		cube_renderer_->set_section_mode(true);
+
+		float x = std::min(start.x, end.x);
+		float w = std::max(start.x, end.x) - x;
+		float y = std::min(start.y, end.y);
+		float h = std::max(start.y, end.y) - y;
+
+		cube_renderer_->set_selection_rectangle(x, y, w, h);
+		//select_in_rectangle(start.x, start.y, end.x, end.y);
 	}
 	else
 	{
@@ -145,13 +157,24 @@ void Application::framebufferSizeCallback(int width, int height) {
 	rubberband->updateScreenSize(width, height);
 }
 
-void Application::run() {
+void Application::select_in_rectangle(float st_x, float st_y, float end_x, float end_y)
+{
+	// Clear screen
+	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	// Render your scene here
+	glm::mat4 view = camera->getViewMatrix();
+	glm::mat4 projection = camera->getProjectionMatrix();
 
-	//instanced_renderer_->addInstance(Transform(glm::vec3(0.0f, 0.0f, 0.0f)));
-	//instanced_renderer_->addInstance(Transform(glm::vec3(2.0f, 0.0f, 0.0f), glm::vec3(30.0f, 30.0f, 0.0f)));
-	//instanced_renderer_->addInstance(Transform(glm::vec3(-2.0f, 0.0f, 0.0f), glm::vec3(30.0f, 45.0f, 0.f), glm::vec3(0.5f)));
+		cube_renderer_->set_section_mode(false);
+		cube_renderer_->pick_render(view, projection, m_models, {});
+		glfwSwapBuffers(window);
 
-	std::vector<glm::mat4> models;
+	
+}
+
+void Application::update_models()
+{
 	auto getModelMat = [](glm::vec3 pos) -> glm::mat4
 	{
 		glm::mat4 model3 = glm::mat4(1.0f);
@@ -162,23 +185,79 @@ void Application::run() {
 		return model3;
 	};
 
-	models.push_back(getModelMat(glm::vec3(3.0f, 0.0f, 0.0f)));
-	models.push_back(getModelMat(glm::vec3(0.0f, 0.0f, 0.0f)));
-	models.push_back(getModelMat(glm::vec3(-3.0f, 0.0f, 0.0f)));
+	m_models.push_back(getModelMat(glm::vec3(3.0f, 0.0f, 0.0f)));
+	m_models.push_back(getModelMat(glm::vec3(0.0f, 0.0f, 0.0f)));
+	m_models.push_back(getModelMat(glm::vec3(-3.0f, 0.0f, 0.0f)));
+}
+
+void Application::draw_scene()
+{
+	// Clear screen
+	bool fbo_on = false;
+
+	if (cube_renderer_->get_section_mode())
+	{
+		glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+        glEnable(GL_DEPTH_TEST);
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		fbo_on = true;
+	}
+	else
+		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	// Render your scene here
+	glm::mat4 view = camera->getViewMatrix();
+	glm::mat4 projection = camera->getProjectionMatrix();
+	//cube_renderer_->set_section_mode(false);
+	cube_renderer_->render(view, projection, m_models, {});
+
+	if(fbo_on) 
+	{
+        glBindFramebuffer(GL_FRAMEBUFFER, 0); // Render to screen.
+	}
+}
+
+
+void Application::init_fbo() 
+{
+	// Create a framebuffer object
+	glGenFramebuffers(1, &FBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+	// create a color attachment texture
+    GLuint textureColorbuffer;
+    glGenTextures(1, &textureColorbuffer);
+    glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, windowWidth, windowHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorbuffer, 0);
+
+// Create depth buffer
+    GLuint depthBuffer;
+    glGenRenderbuffers(1, &depthBuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER, depthBuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, windowWidth, windowHeight);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthBuffer);
+    
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        std::cout << "Framebuffer not complete!" << std::endl;
+    }
+    
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+}
+void Application::run() {
+
+	//instanced_renderer_->addInstance(Transform(glm::vec3(0.0f, 0.0f, 0.0f)));
+	//instanced_renderer_->addInstance(Transform(glm::vec3(2.0f, 0.0f, 0.0f), glm::vec3(30.0f, 30.0f, 0.0f)));
+	//instanced_renderer_->addInstance(Transform(glm::vec3(-2.0f, 0.0f, 0.0f), glm::vec3(30.0f, 45.0f, 0.f), glm::vec3(0.5f)));
+	update_models();
 	glEnable(GL_DEPTH_TEST);
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 
-		// Clear screen
-		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		// Render your scene here
-		glm::mat4 view = camera->getViewMatrix();
-		glm::mat4 projection = camera->getProjectionMatrix();
-		cube_renderer_->set_section_mode(false);
-		cube_renderer_->render(view, projection, models,{} );
-
-
+		draw_scene();
 		// Render rubberband selection on top
 		rubberband->render();
 

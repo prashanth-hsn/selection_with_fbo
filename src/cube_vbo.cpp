@@ -6,6 +6,7 @@
 #include <vector>
 #include "cube_vbo.h"
 
+#include <algorithm>
 #include <set>
 
 // Vertex shader source
@@ -50,8 +51,40 @@ void main()
 )";
 
 
+
+const char* picking_vertexSrc = R"(
+#version 330 compatibility
+layout (location = 0) in vec3 aPos;
+
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+void main()
+{
+	 gl_Position = projection * view * model * vec4(aPos, 1.0);	
+}
+)";
+
+
+const char* picking_fragmentSrc = R"(
+#version 330 compatibility
+// Ouput data
+out vec4 color;
+
+uniform vec4 PickingColor;
+
+void main()
+{
+	color = PickingColor;
+}
+)";
+
 CubeRenderer::CubeRenderer() {
-	setupShaders();
+	shaderProgram = setupShaders(vertexShaderSource, fragmentShaderSource);
+	getUniformLocations();
+	pickShaderPrg = setupShaders(picking_vertexSrc, picking_fragmentSrc);
+	updatePickingUniformLocs();
 	setupBuffers();
 }
 
@@ -62,10 +95,15 @@ CubeRenderer::~CubeRenderer() {
 	glDeleteProgram(shaderProgram);
 }
 
-void CubeRenderer::setupShaders() {
+bool CubeRenderer::get_section_mode()
+{
+	return selection_mode;
+}
+
+GLuint CubeRenderer::setupShaders(const char* vertex_src, const char* frag_src) {
 	// Compile vertex shader
 	GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+	glShaderSource(vertexShader, 1, &vertex_src, NULL);
 	glCompileShader(vertexShader);
 
 	// Check for vertex shader compile errors
@@ -79,7 +117,7 @@ void CubeRenderer::setupShaders() {
 
 	// Compile fragment shader
 	GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
+	glShaderSource(fragmentShader, 1, &frag_src, NULL);
 	glCompileShader(fragmentShader);
 
 	// Check for fragment shader compile errors
@@ -90,27 +128,43 @@ void CubeRenderer::setupShaders() {
 	}
 
 	// Link shaders
-	shaderProgram = glCreateProgram();
-	glAttachShader(shaderProgram, vertexShader);
-	glAttachShader(shaderProgram, fragmentShader);
-	glLinkProgram(shaderProgram);
+	GLuint shader_program = glCreateProgram();
+	glAttachShader(shader_program, vertexShader);
+	glAttachShader(shader_program, fragmentShader);
+	glLinkProgram(shader_program);
 
 	// Check for linking errors
-	glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+	glGetProgramiv(shader_program, GL_LINK_STATUS, &success);
 	if (!success) {
-		glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+		glGetProgramInfoLog(shader_program, 512, NULL, infoLog);
 		std::cerr << "Shader program linking failed: " << infoLog << std::endl;
 	}
 
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 
+
+	return shader_program;
+
+}
+
+void CubeRenderer::getUniformLocations()
+{
 	// Get uniform locations
 	modelLoc = glGetUniformLocation(shaderProgram, "model");
 	viewLoc = glGetUniformLocation(shaderProgram, "view");
 	projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 	selectedLoc = glGetUniformLocation(shaderProgram, "selected");
 
+}
+
+void CubeRenderer::updatePickingUniformLocs()
+{
+	// Get uniform locations
+	p_modelLoc = glGetUniformLocation(pickShaderPrg, "model");
+	p_viewLoc= glGetUniformLocation(pickShaderPrg, "view");
+	p_projectionLoc = glGetUniformLocation(pickShaderPrg, "projection");
+	p_picking_color = glGetUniformLocation(pickShaderPrg, "PickingColor");
 }
 
 void CubeRenderer::setupBuffers() {
@@ -197,14 +251,26 @@ void CubeRenderer::setupBuffers() {
 	glBindVertexArray(0);
 }
 
+void CubeRenderer::set_selection_rectangle(float x, float y, float w, float h)
+{
+	sel_x = std::abs(x);
+	sel_y = std::abs(y);
+	sel_w = std::abs(w);
+	sel_h = std::abs(h);
+
+}
+
 void CubeRenderer::render(const glm::mat4& view, const glm::mat4& projection, const std::vector<glm::mat4>& models, const std::set<int>& selected )
 {
-	glUseProgram(shaderProgram);
 
+	glUseProgram(selection_mode ? pickShaderPrg : shaderProgram);
+
+	if(selection_mode)
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 	// Set view and projection matrices
-	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
-	
+
+	glUniformMatrix4fv((selection_mode) ? p_viewLoc : viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+	glUniformMatrix4fv((selection_mode) ? p_projectionLoc : projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 	
 	glBindVertexArray(VAO);
 
@@ -212,18 +278,76 @@ void CubeRenderer::render(const glm::mat4& view, const glm::mat4& projection, co
 	// Render each cube with its model matrix
 	for (const auto& model : models) {
 
-		if (selection_mode) {
-			glLoadName(model_id);
+		glUniformMatrix4fv((selection_mode) ? p_modelLoc: modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+		// Convert "i", the integer mesh ID, into an RGB color
+		if(selection_mode)
+		{
+			int r = (model_id & 0x000000FF) >> 0;
+			int g = (model_id & 0x0000FF00) >> 8;
+			int b = (model_id & 0x00FF0000) >> 16;
+			// OpenGL expects colors to be in [0,1], so divide by 255.
+			glUniform4f(p_picking_color, r / 255.0f, g / 255.0f, b / 255.0f, 1.0f);
 		}
 
-		if(selected.count(model_id))
+		glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+		++model_id;
+	}
+
+
+	if(selection_mode)
+	{
+		glFlush();
+		glFinish();
+
+		std::set<int> sel_ids;
+		//glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+		int width = static_cast<int>(sel_w);
+		int height = static_cast<int>(sel_h);
+
+
+		std::vector<unsigned char> pixels = readFrameBufferPixels(static_cast<int>(sel_x), static_cast<int>(sel_y), width, height);
+		for(size_t i = 0; i < pixels.size()/4; i++)
 		{
-			glUniform1i(selectedLoc, 1 );
+			int pickedID = pixels [i*4] + pixels[i*4 + 1] * 256 + pixels[ i*4 + 2] * 256 * 256;
+			if (pickedID != 0x00ffffff) {
+				sel_ids.insert(pickedID);
+			}
 		}
-		else
-		{
-			glUniform1i(selectedLoc, 0);
-		}
+
+		std::ranges::for_each(sel_ids, [](int i) { std::cout << "selected id: " << i << "\n"; });
+		selection_mode = false;
+	}
+
+	glBindVertexArray(0);
+}
+
+void CubeRenderer::pick_render(const glm::mat4& view, const glm::mat4& projection, const std::vector<glm::mat4>& models,
+	const std::set<int>& selected)
+{
+
+	glUseProgram(pickShaderPrg);
+
+	// Set view and projection matrices
+	glUniformMatrix4fv(p_viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+	glUniformMatrix4fv(p_projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+
+
+	glBindVertexArray(VAO);
+
+	int model_id = 100;
+	// Render each cube with its model matrix
+	for (const auto& model : models) {
+
+
+		// Convert "i", the integer mesh ID, into an RGB color
+		int r = (model_id & 0x000000FF) >> 0;
+		int g = (model_id & 0x0000FF00) >> 8;
+		int b = (model_id & 0x00FF0000) >> 16;
+
+		// OpenGL expects colors to be in [0,1], so divide by 255.
+		glUniform4f(p_picking_color, r / 255.0f, g / 255.0f, b / 255.0f, 1.0f);
 
 		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 		glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
@@ -231,6 +355,36 @@ void CubeRenderer::render(const glm::mat4& view, const glm::mat4& projection, co
 	}
 
 	glBindVertexArray(0);
+}
+
+std::vector<unsigned char> CubeRenderer::readFrameBufferPixels(int x, int y, int width, int height)
+{
+	// Function to read pixels from the framebuffer
+	GLenum format = GL_RGBA;
+	GLenum type = GL_UNSIGNED_BYTE;
+	int numChannels = 4;
+
+	// Determine the size of each component in bytes
+	int bytesPerComponent = 1;
+
+	size_t bufferSize = static_cast<size_t>(width) * height * numChannels * bytesPerComponent;
+	std::vector<unsigned char> pixels(bufferSize);
+
+	// It's good practice to ensure all pending OpenGL commands are executed
+	// before reading pixels. This can prevent unexpected results, though
+	// glReadPixels often implicitly flushes.
+	glFinish();
+
+	// Read the pixels
+	glReadPixels(x, y, width, height, format, type, pixels.data());
+
+	// Check for OpenGL errors
+	GLenum error = glGetError();
+	if (error != GL_NO_ERROR) {
+		std::cerr << "OpenGL Error: " << error << " during glReadPixels." << std::endl;
+	}
+
+	return pixels;
 }
 
 

@@ -114,7 +114,7 @@ void RubberbandSelection::updateSelection(double mouseX, double mouseY) {
 	}
 }
 
-void RubberbandSelection::endSelection() {
+void RubberbandSelection::endSelection(glm::vec2& start, glm::vec2& end) {
 	if (isSelecting) {
 		isSelecting = false;
 
@@ -124,6 +124,8 @@ void RubberbandSelection::endSelection() {
 
 		// Call selection callback with screen coordinates
 		onSelectionComplete(startScreen.x, startScreen.y, endScreen.x, endScreen.y);
+		start = startScreen;
+		end = endScreen;
 	}
 }
 

@@ -68,7 +68,7 @@ public:
 
 	void updateSelection(double mouseX, double mouseY);
 
-	void endSelection();
+	void endSelection(glm::vec2 &start, glm::vec2 &end);
 
 	void cancelSelection();
 

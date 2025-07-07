@@ -20,6 +20,8 @@ private:
     Camera* camera;
     CameraController* cam_ctrl;
     bool rubberband_active = false;
+    std::vector<glm::mat4> m_models;
+    GLuint FBO;
 public:
     Application();
 
@@ -34,7 +36,10 @@ private:
     void mouseMoveCallback(double xpos, double ypos);
 
     void framebufferSizeCallback(int width, int height);
-
+    void select_in_rectangle(float st_x, float st_y, float end_x, float end_y);
+    void update_models();
+    void draw_scene();
+    void init_fbo();
 public:
     void run();
 }; 

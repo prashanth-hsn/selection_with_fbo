@@ -4,6 +4,10 @@
 
 #include <iostream>
 #include <iomanip> // For std::fixed and std::setprecision
+
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
+
 namespace {
 	// --- Helper for printing GLM vectors and matrices ---
 	// Overload for glm::vec3
@@ -23,7 +27,11 @@ namespace {
 		}
 		return os;
 	}
-};
+
+	bool isZero(float value) {
+    	return std::fabs(value) < std::numeric_limits<float>::epsilon(); 
+	}
+}
 
 // Constructor
 Camera::Camera(glm::vec3 initialPosition, glm::vec3 initialTarget, glm::vec3 upVector,
@@ -37,7 +45,7 @@ Camera::Camera(glm::vec3 initialPosition, glm::vec3 initialTarget, glm::vec3 upV
 	farClip(initialFar),
 	panSpeed(0.001f),  // Default pan speed
 	zoomSpeed(0.1f),  // Default zoom speed
-	orbitSpeed(0.005f), // Default orbit speed (radians per pixel),
+	orbitSpeed(0.1f), // Default orbit speed (radians per pixel),
 	rotation_sensitivity(0.1),
 	pan_sensitivity(0.1)
 {
@@ -85,6 +93,7 @@ void Camera::zoom(float delta) {
 	updateDistanceToTarget(); // Recalculate distance after zoom
 }
 
+
 // Orbit the camera around the target point
 // angleX, angleY are mouse movement deltas (e.g., in pixels)
 void Camera::orbit(float angleX_delta, float angleY_delta) {
@@ -99,17 +108,19 @@ void Camera::orbit(float angleX_delta, float angleY_delta) {
 	glm::vec3 currentForward = glm::normalize(target - position);
 	glm::vec3 currentRight = glm::normalize(glm::cross(currentForward, worldUp));
 
-	// Apply yaw rotation around worldUp
-	glm::mat4 yawRotationMatrix = glm::rotate(glm::mat4(1.0f), yawAngle, worldUp);
-	glm::vec3 tempRelativePosition = glm::vec3(yawRotationMatrix * glm::vec4(relativePosition, 1.0f));
+    // Create quaternions for yaw and pitch rotations
+	
+    glm::quat yawQuat = glm::angleAxis(yawAngle, worldUp);
+    glm::quat pitchQuat = glm::angleAxis(pitchAngle, currentRight);
 
-	// Apply pitch rotation around the *new* right vector (after yaw)
+    // Apply yaw rotation
+    glm::vec3 tempRelativePosition = yawQuat * relativePosition;
 	// Recalculate the right vector based on the yawed relative position
 	glm::vec3 newForwardAfterYaw = glm::normalize(tempRelativePosition) * -1.0f;
 	glm::vec3 newRightAfterYaw = glm::normalize(glm::cross(newForwardAfterYaw, worldUp));
 
-	glm::mat4 pitchRotationMatrix = glm::rotate(glm::mat4(1.0f), pitchAngle, newRightAfterYaw);
-	glm::vec3 finalRelativePosition = glm::vec3(pitchRotationMatrix * glm::vec4(tempRelativePosition, 1.0f));
+    // Apply pitch rotation around the *new* right vector (after yaw)
+    glm::vec3 finalRelativePosition = pitchQuat * tempRelativePosition;
 
 	// Update camera position
 	position = target + finalRelativePosition;
@@ -217,6 +228,9 @@ void CameraController::mouseMoveCallback(float mouseX, float mouseY) {
 	else if (middleMouseDown) {
 		camera->pan(delta.x, delta.y);
 	}
+
+	last_mouse_pos = glm::vec2(mouseX, mouseY);
+
 }
 
 void CameraController::scrollCallback(float yOffset) {
