@@ -170,7 +170,7 @@ void CubeRenderer::updatePickingUniformLocs()
 void CubeRenderer::setupBuffers() {
 
 
-	float size = 0.5f;
+	float size = 0.1f;
 	// Cube vertices with positions and colors
 	float vertices[] = {
 		// Front face (red)

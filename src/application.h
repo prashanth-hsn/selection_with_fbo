@@ -40,6 +40,9 @@ private:
     void update_models();
     void draw_scene();
     void init_fbo();
+
+    void testCoordinateTransformation();
+
 public:
     void run();
 }; 

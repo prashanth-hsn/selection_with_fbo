@@ -3,6 +3,7 @@
 #include "glad/glad.h"
 #include <iostream>
 #include "GLFW/glfw3.h"
+#include "gl/GLU.h"
 
 // Example usage with GLFW
 Application::Application(){
@@ -93,7 +94,12 @@ void Application::setupCallbacks()
 	glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scan, int action, int mods)
 	{
 		Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
-		app->cam_ctrl->keyCallback(key, action); });
+		app->cam_ctrl->keyCallback(key, action);
+		if (key == GLFW_KEY_P && action == 1)
+		{
+			app->testCoordinateTransformation();
+		}
+	});
 }
 
 void Application::mouseButtonCallback(int button, int action, int mods) {
@@ -185,9 +191,27 @@ void Application::update_models()
 		return model3;
 	};
 
-	m_models.push_back(getModelMat(glm::vec3(3.0f, 0.0f, 0.0f)));
-	m_models.push_back(getModelMat(glm::vec3(0.0f, 0.0f, 0.0f)));
-	m_models.push_back(getModelMat(glm::vec3(-3.0f, 0.0f, 0.0f)));
+
+	float delta_step = 1.1f;
+
+	float x = 0.0;
+
+	int grid_size = 3;
+	for(int i = 0; i < grid_size; i++)
+	{
+		float y = 0.f;
+		for(int j = 0; j < grid_size; j++)
+		{
+			float z = 0.f;
+			for(int k = 0; k < grid_size; k++)
+			{
+				m_models.push_back(getModelMat(glm::vec3(x, y, z)));
+				z += delta_step;
+			}
+			y += delta_step;
+		}
+		x += delta_step;
+	}
 }
 
 void Application::draw_scene()
@@ -247,6 +271,40 @@ void Application::init_fbo()
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 }
+
+void Application::testCoordinateTransformation()
+{
+	// Get current OpenGL matrices
+	//GLdouble modelMatrix[16];
+	//GLdouble projMatrix[16];
+	GLint viewport[4];
+
+//	glGetDoublev(GL_MODELVIEW_MATRIX, modelMatrix);
+//	glGetDoublev(GL_PROJECTION_MATRIX, projMatrix);
+	glm::mat4 modelMatrix = camera->getViewMatrix();
+	glm::mat4 projectionMatrix = camera->getProjectionMatrix();
+
+	glGetIntegerv(GL_VIEWPORT, viewport);
+
+	glm::vec4 vwprt {viewport[0], viewport[1], viewport[2], viewport[3]};
+
+	double wx = cam_ctrl->last_mouse_pos.x , wy = cam_ctrl->last_mouse_pos.y, wz = 1.;
+	// Convert model coordinates to window coordinates using gluProject
+	glm::vec3 wPos = { wx, wy, wz };
+	glm::vec3 modelPos = glm::unProject(wPos, modelMatrix, projectionMatrix, vwprt);
+
+
+	std::cout << "WINDOW = (" << wPos.x << ", " << wPos.y << ", " << wPos.z << ")\n";
+	std::cout << "VIEW = (" << modelPos.x << ", " << modelPos.y << ", " << modelPos.z << ")\n";
+
+	glm::vec4 in_one = glm::inverse(m_models[0]) * glm::vec4(modelPos, 1.0);
+	std::cout << "MODEL = (" << in_one.x << ", " << in_one.y << ", " << in_one.z << ")\n";
+
+	wPos = glm::project(modelPos, modelMatrix, projectionMatrix, vwprt);
+
+	std::cout << "RECOVER = (" << wx << ", " << wy << ", " << wz << ")\n";
+}
+
 void Application::run() {
 
 	//instanced_renderer_->addInstance(Transform(glm::vec3(0.0f, 0.0f, 0.0f)));

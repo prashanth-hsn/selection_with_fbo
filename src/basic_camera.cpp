@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include <iomanip> // For std::fixed and std::setprecision
+#include <GLFW/glfw3.h>
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>

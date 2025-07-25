@@ -82,8 +82,9 @@ private:
     bool leftMouseDown;
     bool middleMouseDown;
     bool shiftPressed;
-    glm::vec2 last_mouse_pos;
 public:
+
+    glm::vec2 last_mouse_pos;
     CameraController(Camera* cam, float width, float height);
     ~CameraController() = default;
 
